@@ -450,7 +450,6 @@ public:
         cbvRootParam.Descriptor.RegisterSpace = 0;
         cbvRootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-        // 1. Define el root parameter para las constantes
         D3D12_ROOT_PARAMETER rootParam = {};
         rootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         rootParam.Constants.Num32BitValues = 8;
@@ -893,7 +892,7 @@ public:
         commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 
-        // Tender the scene
+        // Render the scene
         commandList->RSSetViewports(1, &viewport);
         commandList->RSSetScissorRects(1, &scissorRect);
         commandList->SetGraphicsRootSignature(rootSignature);

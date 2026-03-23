@@ -75,6 +75,7 @@ public:
     {
         m_Width = width;
         m_Height = Heigh;
+
         IDXGIFactory4* factory = nullptr;
         CreateDXGIFactory1(IID_PPV_ARGS(&factory));
 
