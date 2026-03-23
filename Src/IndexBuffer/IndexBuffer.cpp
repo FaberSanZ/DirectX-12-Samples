@@ -292,15 +292,20 @@ public:
 
         Vertex vertices[] =
         {
-            {  0.0f,  0.5f, 0.0f, 1.0f, // POSITION
-                0.9f, 0.0f, 0.0f, 1.0f},     // COLOR
+            {  -0.5f, 0.5f, 0.0f, 1.0f, // POSITION
+                0.9f, 0.0f, 0.0f, 1.0f },     // COLOR
 
-            {  0.5f, -0.5f, 0.0f, 1.0f, // POSITION
+            {  0.5f, 0.5f, 0.0f, 1.0f,  // POSITION
                 0.0f, 0.9f, 0.0f, 1.0f,},     // COLOR
 
-            { -0.5f, -0.5f, 0.0f,1.0f,  // POSITION
-                0.0f, 0.0f, 0.9f, 1.0f, }      // COLOR
+            { 0.5f, -0.5f, 0.0f,1.0f,  // POSITION
+                0.0f, 0.0f, 0.9f, 1.0f, },      // COLOR
+
+            { -0.5f, -0.5f, 0.0f, 1.0f,  // POSITION
+              1.0f, 0.0f, 1.0f, 1.0f, }      // COLOR
+
         };
+
 
         vertexBuffer.size = sizeof(vertices);
         vertexBuffer.stride = sizeof(Vertex);
@@ -338,16 +343,17 @@ public:
 
     void CreateIndexBuffer()
     {
-        uint32_t indices[] = { 0, 1, 2 };
+        uint32_t indices[] = { 0, 1, 2, 0, 2, 3 };
 
-        UINT indexBufferSize = sizeof(indices);
+        indexbuffer.size = sizeof(indices);
+        indexbuffer.stride = sizeof(uint32_t);
 
         D3D12_HEAP_PROPERTIES heapProps = {};
         heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
 
         D3D12_RESOURCE_DESC desc = {};
         desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        desc.Width = indexBufferSize;
+        desc.Width = indexbuffer.size;
         desc.Height = 1;
         desc.DepthOrArraySize = 1;
         desc.MipLevels = 1;
