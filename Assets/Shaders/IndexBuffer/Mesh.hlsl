@@ -18,6 +18,8 @@ struct PSInput
 
 // Vertex buffer
 StructuredBuffer<Vertex> gVertices : register(t0);
+StructuredBuffer<uint> gIndices : register(t1);
+
 
 [outputtopology("triangle")]
 [numthreads(3, 1, 1)]
@@ -27,13 +29,16 @@ void MS( uint3 groupThreadID : SV_GroupThreadID, out vertices MeshOutput verts[3
 
     uint id = groupThreadID.x;
 
+    uint vertexIndex = gIndices[id];
+
+
     // Vertex Pulling
-    Vertex v = gVertices[id];
+    Vertex v = gVertices[vertexIndex];
 
     verts[id].Pos = v.position;
     verts[id].Color = v.color;
 
-    // Solo un thread escribe Ã­ndices
+    // Solo un thread escribe índices
     if (id == 0)
     {
         tris[0] = uint3(0, 1, 2);

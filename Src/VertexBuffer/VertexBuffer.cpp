@@ -69,23 +69,23 @@ private:
         }
     };
 
-    class VertexBuffer
+    class Buffer
     {
-	public:
-		VertexBuffer() = default;
+    public:
+        Buffer() = default;
 
-        ID3D12Resource* m_vertexBuffer = nullptr;
+        ID3D12Resource* handle = nullptr;
         uint32_t stride = { };
         uint32_t size = { };
 
         void Destroy()
         {
-            if (m_vertexBuffer)
+            if (handle)
             {
-                m_vertexBuffer->Release();
-                m_vertexBuffer = nullptr;
+                handle->Release();
+                handle = nullptr;
             }
-		}
+        }
     } vertexBuffer;
 
 public:
@@ -109,7 +109,6 @@ public:
     Core::ShaderCompilerDXC shaderCompiler {};
 
     DescriptorHeap rtvDescriptorHeap {};
-    DescriptorHeap srvHeap{};
 
 
 
@@ -154,8 +153,6 @@ public:
         // Create RTV descriptor heap
         rtvDescriptorHeap.Initialize(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, m_FrameCount);
 
-		// Create SRV descriptor heap
-        srvHeap.Initialize(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1, true);
 
 
         for (uint32_t i = 0; i < m_FrameCount; ++i)
@@ -187,18 +184,24 @@ public:
         auto meshShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/VertexBuffer/Mesh.hlsl", L"MS", L"ms_6_5");
         auto pixelShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/VertexBuffer/PixelShader.hlsl", L"PS", L"ps_6_5");
 
-        CD3DX12_DESCRIPTOR_RANGE range;
-        range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0
 
-        CD3DX12_ROOT_PARAMETER param;
-        param.InitAsDescriptorTable(1, &range);
+
+        D3D12_ROOT_PARAMETER rootParams[1] = {};
+
+        // t0 Vertex Buffer
+        rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParams[0].Descriptor.ShaderRegister = 0;
+        rootParams[0].Descriptor.RegisterSpace = 0;
+        rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
 
         D3D12_ROOT_SIGNATURE_DESC rootDesc = {};
         rootDesc.NumParameters = 1;
-        rootDesc.pParameters = &param;
+        rootDesc.pParameters = rootParams;
         rootDesc.NumStaticSamplers = 0;
         rootDesc.pStaticSamplers = nullptr;
         rootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
 
         ID3DBlob* serialized = nullptr;
         ID3DBlob* error = nullptr;
@@ -296,7 +299,7 @@ public:
         };
 
         vertexBuffer.size = sizeof(vertices);
-		vertexBuffer.stride = sizeof(Vertex);
+        vertexBuffer.stride = sizeof(Vertex);
 
         // Create vertex buffer
         D3D12_HEAP_PROPERTIES heapProps = {};
@@ -318,31 +321,14 @@ public:
         bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
 
-        device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexBuffer.m_vertexBuffer));
+        device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexBuffer.handle));
 
 
         // Copy vertex data to the vertex buffer
         void* pData;
-        vertexBuffer.m_vertexBuffer->Map(0, nullptr, &pData);
+        vertexBuffer.handle->Map(0, nullptr, &pData);
         memcpy(pData, vertices, sizeof(vertices));
-        vertexBuffer.m_vertexBuffer->Unmap(0, nullptr);
-
-
-		// Create SRV for the vertex buffer
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-
-        srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = 3;
-        srvDesc.Buffer.StructureByteStride = sizeof(Vertex);
-        srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-
-        device->CreateShaderResourceView(vertexBuffer.m_vertexBuffer, &srvDesc, srvHeap.GetCPUHandle(0));
-
-
-
+        vertexBuffer.handle->Unmap(0, nullptr);
     }
 
     void Loop()
@@ -374,12 +360,8 @@ public:
         commandList->SetPipelineState(pipelineState);
         commandList->SetGraphicsRootSignature(rootSignature);
 
-        // DESCRIPTOR HEAP
-        ID3D12DescriptorHeap* heaps[] = { srvHeap.m_Heap };
-        commandList->SetDescriptorHeaps(1, heaps);
-
-        // BIND SRV (t0)
-        commandList->SetGraphicsRootDescriptorTable(0, srvHeap.GetGPUDescriptorHandleForHeapStart());
+		// Bind the vertex buffer as a shader resource view (SRV) at t0
+        commandList->SetGraphicsRootShaderResourceView(0, vertexBuffer.handle->GetGPUVirtualAddress());
 
         // Dispatch the mesh shader with 1 thread group (adjust as needed for your scene)
         commandList->DispatchMesh(1, 1, 1);
@@ -398,9 +380,8 @@ public:
 
     void Cleanup()
     {
-        if(vertexBuffer.m_vertexBuffer)
+        if(vertexBuffer.handle)
             vertexBuffer.Destroy();
-
 
 
         for (uint32_t i = 0; i < 2; ++i)
