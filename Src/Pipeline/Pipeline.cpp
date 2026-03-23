@@ -272,8 +272,8 @@ public:
         commandList->SetPipelineState(pipelineState);
         commandList->SetGraphicsRootSignature(rootSignature);
 
-        // Dispatch del mesh shader
-        commandList->DispatchMesh(10, 1, 1);
+		// Dispatch the mesh shader with 1 thread group (adjust as needed for your scene)
+        commandList->DispatchMesh(1, 1, 1);
 
         // Close and execute the command list
         commandList->Close();
