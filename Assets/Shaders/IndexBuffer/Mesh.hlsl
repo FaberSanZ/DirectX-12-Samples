@@ -35,16 +35,13 @@ void MS(uint3 groupThreadID : SV_GroupThreadID, out vertices MeshOutput verts[4]
     verts[id].Color = v.color;
     
     
-    if (id == 0)
+    
+    for (uint i = 0; i < 2; ++i) // In this example, we are using the first 6 indices to form 2 triangles.
     {
-        uint i0 = gIndices[0];  // 0
-        uint i1 = gIndices[1];  // 1
-        uint i2 = gIndices[2];  // 2
-        tris[0] = uint3(i0, i1, i2); 
-        
-        uint i3 = gIndices[3];  // 0
-        uint i4 = gIndices[4];  // 2
-        uint i5 = gIndices[5];  // 3
-        tris[1] = uint3(i3, i4, i5);
+        uint base = i * 3;  // 0, 3
+
+        tris[i] = uint3(gIndices[base + 0], gIndices[base + 1], gIndices[base + 2]);        
     }
+
+    
 }
