@@ -37,8 +37,7 @@ Example | Details
 - Serve as a personal reference for building engines or tools.
 - Keep things clean, readable, and low-level.
 
-## 🎯 Requirements
-
 - Windows 10/11
 - Visual Studio 2019 or newer
 - DirectX 12 compatible GPU
+- DirectX 12 Ultimate compatible GPU recommended for Mesh Shader and Ray Query samples
