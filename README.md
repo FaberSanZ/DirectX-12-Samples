@@ -27,6 +27,8 @@ Example | Details
 <img src="Screenshots/ImGui.png" width=380> | [ImGui](Src/ImGui)<br>This sample shows how to use ImGui with DirectX 12 to control two 3D cubes.
 <img src="Screenshots/NumThreads.png" width=380> | [NumThreads](Src/NumThreads)<br>This sample introduces `numthreads` in Mesh Shaders. The mesh shader uses multiple threads inside one mesh shader group, with each thread processing one triangle. The first thread writes the output indices, and flat debug colors are used to visualize the work done by each thread.
 <img src="Screenshots/RootConstants.png" width=380> | [RootConstants](Src/RootConstants)<br>Uses SetGraphicsRoot32BitConstants, small blocks of uniform data stored within a command list, to pass data to a shader without the need for uniform buffers.
+<img src="Screenshots/Meshlets.png" width=380> | [Meshlets](Src/Meshlets)<br>This sample introduces meshlets using the Mesh Shader Pipeline. The mesh is divided into small clusters of vertices and triangles, and each meshlet is rendered by one mesh shader group using `DispatchMesh`. Each meshlet is displayed with a unique flat debug color, making it easy to visualize how the geometry is partitioned and processed on the GPU.
+
 
 
 
