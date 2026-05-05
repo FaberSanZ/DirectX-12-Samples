@@ -612,11 +612,7 @@ public:
             unsigned int* localVertices = meshletVertices.data() + meshlet.vertex_offset;
             unsigned char* localTriangles = meshletTriangleBytes.data() + meshlet.triangle_offset;
 
-            meshopt_optimizeMeshlet(
-                localVertices,
-                localTriangles,
-                meshlet.triangle_count,
-                meshlet.vertex_count);
+            meshopt_optimizeMeshlet(localVertices, localTriangles, meshlet.triangle_count, meshlet.vertex_count);
         }
 
         // Convert meshoptimizer's byte triangle stream into a uint-packed stream for HLSL.
@@ -661,31 +657,31 @@ public:
         heapProps.CreationNodeMask = 1;
         heapProps.VisibleNodeMask = 1;
 
-        auto createBuffer = [&](ID3D12Resource** resource, const void* data, size_t size)
-            {
-                D3D12_RESOURCE_DESC bufferDesc = {};
-                bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-                bufferDesc.Width = size;
-                bufferDesc.Height = 1;
-                bufferDesc.DepthOrArraySize = 1;
-                bufferDesc.MipLevels = 1;
-                bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
-                bufferDesc.SampleDesc.Count = 1;
-                bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-                bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-                device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(resource));
-
-                void* pData = nullptr;
-                (*resource)->Map(0, nullptr, &pData);
-                memcpy(pData, data, size);
-                (*resource)->Unmap(0, nullptr);
-            };
-
-        createBuffer(&meshletBuffer, gpuMeshlets.data(), gpuMeshlets.size() * sizeof(GpuMeshlet));
-        createBuffer(&meshletVerticesBuffer, meshletVertices.data(), meshletVertices.size() * sizeof(uint32_t));
-        createBuffer(&meshletTrianglesBuffer, meshletTriangles.data(), meshletTriangles.size() * sizeof(uint32_t));
+        createBuffer(&meshletBuffer, gpuMeshlets.data(), gpuMeshlets.size() * sizeof(GpuMeshlet), heapProps);
+        createBuffer(&meshletVerticesBuffer, meshletVertices.data(), meshletVertices.size() * sizeof(uint32_t), heapProps);
+        createBuffer(&meshletTrianglesBuffer, meshletTriangles.data(), meshletTriangles.size() * sizeof(uint32_t), heapProps);
     }
+
+    void createBuffer(ID3D12Resource** resource, const void* data, size_t size, D3D12_HEAP_PROPERTIES heapProps)
+    {
+        D3D12_RESOURCE_DESC bufferDesc = {};
+        bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        bufferDesc.Width = size;
+        bufferDesc.Height = 1;
+        bufferDesc.DepthOrArraySize = 1;
+        bufferDesc.MipLevels = 1;
+        bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+        bufferDesc.SampleDesc.Count = 1;
+        bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(resource));
+
+        void* pData = nullptr;
+        (*resource)->Map(0, nullptr, &pData);
+        memcpy(pData, data, size);
+        (*resource)->Unmap(0, nullptr);
+    };
 
 
     void CreateConstantBuffer()
@@ -1001,21 +997,16 @@ int main()
         {
         });
 
-
-
-
     win.SetOnRender([&render]
         {
             render.OnUpdate();
             render.OnRender();
         });
 
-
     win.SetOnResize([&render](UINT w, UINT h)
         {
             render.OnResize(w, h);
         });
-
 
     win.Run();
 
