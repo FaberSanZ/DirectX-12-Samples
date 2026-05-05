@@ -90,8 +90,6 @@ void MS(uint threadId : SV_GroupIndex, uint3 groupId : SV_GroupID, out vertices 
         outVertex.Pos = mul(outVertex.Pos, View);
         outVertex.Pos = mul(outVertex.Pos, Projection);
 
-        // IMPORTANTE:
-        // todos los vertices del meshlet reciben el mismo color
         outVertex.Color = meshletColor;
 
         verts[i] = outVertex;
@@ -101,10 +99,6 @@ void MS(uint threadId : SV_GroupIndex, uint3 groupId : SV_GroupID, out vertices 
     {
         uint packedTriangle = gMeshletTriangles[meshlet.triangle_offset + threadId];
 
-        tris[threadId] = uint3(
-            packedTriangle & 0xff,
-            (packedTriangle >> 8) & 0xff,
-            (packedTriangle >> 16) & 0xff
-        );
+        tris[threadId] = uint3(packedTriangle & 0xff, (packedTriangle >> 8) & 0xff, (packedTriangle >> 16) & 0xff);
     }
 }
