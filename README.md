@@ -37,6 +37,8 @@ Example | Details
 - Serve as a personal reference for building engines or tools.
 - Keep things clean, readable, and low-level.
 
+## 🎯 Requirements
+
 - Windows 10/11
 - Visual Studio 2019 or newer
 - DirectX 12 compatible GPU
