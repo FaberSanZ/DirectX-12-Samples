@@ -25,6 +25,7 @@ Example | Details
 <img src="Screenshots/Blending.png" width=380> | [Blending](Src/Blending)<br> Here we will learn about a technique called "blending"! This will give us the ability to render "transparent" primitives.
 <img src="Screenshots/ConstantBuffer.png" width=380> | [ConstantBuffer](Src/ConstantBuffer)<br> In this sample, we will learn about matrices, transformations, world/view/projection space matrices, and constant buffers
 <img src="Screenshots/ImGui.png" width=380> | [ImGui](Src/ImGui)<br>This sample shows how to use ImGui with DirectX 12 to control two 3D cubes.
+<img src="Screenshots/NumThreads.png" width=380> | [NumThreads](Src/NumThreads)<br>This sample introduces `numthreads` in Mesh Shaders. The mesh shader uses multiple threads inside one mesh shader group, with each thread processing one triangle. The first thread writes the output indices, and flat debug colors are used to visualize the work done by each thread.
 <img src="Screenshots/RootConstants.png" width=380> | [RootConstants](Src/RootConstants)<br>Uses SetGraphicsRoot32BitConstants, small blocks of uniform data stored within a command list, to pass data to a shader without the need for uniform buffers.
 
 
@@ -41,3 +42,4 @@ Example | Details
 - Windows 10/11
 - Visual Studio 2019 or newer
 - DirectX 12 compatible GPU
+- DirectX 12 Ultimate compatible GPU recommended for Mesh Shader and Ray Query samples
