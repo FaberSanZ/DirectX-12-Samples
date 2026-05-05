@@ -1,4 +1,4 @@
-// DepthTests.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// DepthTests.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 #include <Windows.h>
@@ -7,6 +7,7 @@
 #include <tchar.h>
 #include <iostream>
 #include <d3dcompiler.h>
+#include <d3dx12/d3dx12.h>
 #include "ShaderCompiler.h"
 
 #pragma comment(lib, "d3d12.lib")
@@ -117,12 +118,12 @@ public:
     uint32_t m_FrameCount { 2 };
 
     // Render device and resources
-    ID3D12Device* device = nullptr;
+    ID3D12Device2* device = nullptr;
     ID3D12CommandQueue* commandQueue = nullptr;
     IDXGISwapChain3* swapChain = nullptr;
     ID3D12Resource* renderTargets[2];
     ID3D12CommandAllocator* commandAlloc = nullptr;
-    ID3D12GraphicsCommandList* commandList = nullptr;
+    ID3D12GraphicsCommandList6* commandList = nullptr;
 
     ID3D12Resource* depthStencilBuffer; // This is the memory for our depth buffer. it will also be used for a stencil buffer in a later tutorial
 
@@ -145,7 +146,7 @@ public:
         IDXGIFactory4* factory = nullptr;
         CreateDXGIFactory1(IID_PPV_ARGS(&factory));
 
-        D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
+        D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device));
 
 
 
@@ -253,14 +254,25 @@ public:
 
     void CreatePipeline()
     {
-        auto vertexShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/DepthTests/VertexShader.hlsl", L"VS", L"vs_6_0");
+        auto meshShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/DepthTests/Mesh.hlsl", L"MS", L"ms_6_5");
         auto pixelShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/DepthTests/PixelShader.hlsl", L"PS", L"ps_6_0");
 
 
+        D3D12_ROOT_PARAMETER rootParams[2] = {};
+        rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParams[0].Descriptor.ShaderRegister = 0;
+        rootParams[0].Descriptor.RegisterSpace = 0;
+        rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+        rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParams[1].Descriptor.ShaderRegister = 1;
+        rootParams[1].Descriptor.RegisterSpace = 0;
+        rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
         D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
-        rootSigDesc.NumParameters = 0;
-        rootSigDesc.pParameters = nullptr;
-        rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        rootSigDesc.NumParameters = _countof(rootParams);
+        rootSigDesc.pParameters = rootParams;
+        rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
         ID3DBlob* sigBlob = nullptr;
         ID3DBlob* errorBlob = nullptr;
@@ -268,32 +280,12 @@ public:
         D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &sigBlob, &errorBlob);
         device->CreateRootSignature(0, sigBlob->GetBufferPointer(), sigBlob->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
 
-        // --- PIPELINE STATE ---
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = rootSignature;
-
-        psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
-        psoDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
-
-
-
-        // Define the vertex input layout.
-        D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
-        {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-        };
-
-        psoDesc.InputLayout.NumElements = _countof(inputElementDescs);
-        psoDesc.InputLayout.pInputElementDescs = inputElementDescs;
-
         // Rasterizer state manual
         D3D12_RASTERIZER_DESC rasterizerDesc = {};
         rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
         rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
         rasterizerDesc.FrontCounterClockwise = false;
         rasterizerDesc.DepthClipEnable = true;
-        psoDesc.RasterizerState = rasterizerDesc;
 
         // Blend state manual
         D3D12_BLEND_DESC blendDesc = {};
@@ -301,30 +293,33 @@ public:
         blendDesc.IndependentBlendEnable = false;
         blendDesc.RenderTarget[0].BlendEnable = false;
         blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-        psoDesc.BlendState = blendDesc;
 
         // Depth stencil
-  
-
-
         D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
         depthStencilDesc.DepthEnable = true;
         depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
         depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
         depthStencilDesc.StencilEnable = false;
 
+        D3DX12_MESH_SHADER_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = rootSignature;
+        psoDesc.MS = { meshShaderBlob->GetBufferPointer(), meshShaderBlob->GetBufferSize() };
+        psoDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
+        psoDesc.RasterizerState = rasterizerDesc;
+        psoDesc.BlendState = blendDesc;
         psoDesc.DepthStencilState = depthStencilDesc;
         psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-
-
-
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 1;
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleMask = UINT_MAX;
         psoDesc.SampleDesc.Count = 1;
 
-        device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState));
+        auto psoStream = CD3DX12_PIPELINE_MESH_STATE_STREAM(psoDesc);
+        D3D12_PIPELINE_STATE_STREAM_DESC streamDesc = {};
+        streamDesc.pPipelineStateSubobjectStream = &psoStream;
+        streamDesc.SizeInBytes = sizeof(psoStream);
+
+        device->CreatePipelineState(&streamDesc, IID_PPV_ARGS(&pipelineState));
     }
 
 
@@ -482,12 +477,11 @@ public:
         commandList->RSSetViewports(1, &view);
         commandList->RSSetScissorRects(1, &scissorRect);
 
-        // draw the triangle
         commandList->SetPipelineState(pipelineState);
-        commandList->IASetVertexBuffers(0, 1, &vertexBuffer.m_vertexBufferView);
-        commandList->IASetIndexBuffer(&indexBuffer.m_indexBufferView);
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->DrawIndexedInstanced(indexBuffer.m_indexCount, 1, 0, 0, 0);
+        commandList->SetGraphicsRootSignature(rootSignature);
+        commandList->SetGraphicsRootShaderResourceView(0, vertexBuffer.m_vertexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootShaderResourceView(1, indexBuffer.m_indexBuffer->GetGPUVirtualAddress());
+        commandList->DispatchMesh(1, 1, 1);
 
 
         commandList->Close();

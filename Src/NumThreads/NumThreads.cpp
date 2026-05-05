@@ -1,8 +1,7 @@
-﻿// Blending.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// NumThreads.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 
-//#include <Windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <tchar.h>
@@ -10,64 +9,25 @@
 #include <d3dcompiler.h>
 #include <d3dx12/d3dx12.h>
 #include "ShaderCompiler.h"
-#include "Windows.h"
+#include "Desktop/Window.h"
+#include "Graphics/DescriptorHeap.h"
+#include <DirectXMath.h>
+#include "Dta/imgui.h"
+#include "Dta/imgui_impl_win32.h"
+#include "Dta/imgui_impl_dx12.h"
+
+
+
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 
+using namespace Graphics;
+using namespace Desktop;
+using namespace DirectX;
 
 class Render
 {
 public:
-
-    class DescriptorHeap
-    {
-    public:
-        ID3D12DescriptorHeap* m_Heap = nullptr;
-        uint32_t m_DescriptorSize = 0;
-
-        DescriptorHeap() = default;
-
-        void Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT numDescriptors)
-        {
-            D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
-            heapDesc.Type = type;
-            heapDesc.NumDescriptors = numDescriptors;
-            heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-            heapDesc.NodeMask = 0;
-            device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_Heap));
-            m_DescriptorSize = device->GetDescriptorHandleIncrementSize(type);
-        }
-
-        D3D12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(uint32_t index) const
-        {
-            D3D12_CPU_DESCRIPTOR_HANDLE handle = GetCPUDescriptorHandleForHeapStart();
-            handle.ptr += index * m_DescriptorSize;
-            return handle;
-        }
-
-        D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandleForHeapStart() const
-        {
-            return m_Heap->GetCPUDescriptorHandleForHeapStart();
-        }
-        D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandleForHeapStart() const
-        {
-            return m_Heap->GetGPUDescriptorHandleForHeapStart();
-        }
-
-        uint32_t GetDescriptorSize() const
-        {
-            return m_DescriptorSize;
-        }
-
-        void Destroy()
-        {
-            if (m_Heap)
-            {
-                m_Heap->Release();
-                m_Heap = nullptr;
-            }
-        }
-    };
 
     class VertexBuffer
     {
@@ -111,6 +71,32 @@ public:
 
     } indexBuffer;
 
+    struct ConstantBuffer
+    {
+        ID3D12Resource* m_buffer = nullptr;
+        D3D12_CONSTANT_BUFFER_VIEW_DESC m_desc = { };
+        uint32_t m_size = 0;
+
+        void Destroy()
+        {
+            if (m_buffer)
+            {
+                m_buffer->Release();
+                m_buffer = nullptr;
+            }
+        }
+    } constBuffer, constBuffer2;
+
+
+
+    struct CameraBuffer
+    {
+        XMMATRIX word;
+        XMMATRIX view;
+        XMMATRIX projection;
+    } cameraData, cameraData2;
+
+
 public:
     Render() = default;
 
@@ -139,6 +125,7 @@ public:
 
     DescriptorHeap rtvDescriptorHeap {};  // This is a heap for our render target view descriptor
     DescriptorHeap dpvDescriptorHeap {};  // This is a heap for our depth/stencil buffer descriptor
+	DescriptorHeap guiDescriptorHeap {}; // This is a heap for our ImGui descriptor heap
 
 
 
@@ -190,11 +177,12 @@ public:
         tempSwapChain->QueryInterface(IID_PPV_ARGS(&swapChain));
         factory->Release();
 
-		// Create command allocator and command list
+        // Create command allocator and command list
         device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAlloc));
         device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAlloc, nullptr, IID_PPV_ARGS(&commandList));
 
         commandList->Close();
+
 
         CreateSynchronizationObjects();
         CreateRenderTargetViews();
@@ -202,6 +190,40 @@ public:
         CreatePipeline();
         CreateVertexBuffer();
         CreateIndexBuffer();
+        CreateConstantBuffer();
+
+
+
+
+		// Create ImGui context
+
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::StyleColorsDark();
+
+        // Backend
+        ImGui_ImplWin32_Init(hwnd);
+
+		guiDescriptorHeap.Initialize(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024, true);
+
+        ImGui_ImplDX12_InitInfo init_info = {};
+        init_info.Device = device;
+        init_info.CommandQueue = commandQueue;
+        init_info.NumFramesInFlight = m_FrameCount;
+        init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+        init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
+
+        // Allocating SRV descriptors (for textures) is up to the application, so we provide callbacks.
+        // (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
+        init_info.SrvDescriptorHeap = guiDescriptorHeap.m_Heap;
+
+
+        init_info.LegacySingleSrvCpuDescriptor = guiDescriptorHeap.GetCPUDescriptorHandleForHeapStart();
+        init_info.LegacySingleSrvGpuDescriptor = guiDescriptorHeap.GetGPUDescriptorHandleForHeapStart();
+
+        ImGui_ImplDX12_Init(&init_info);
+
         return true;
     }
 
@@ -248,7 +270,7 @@ public:
     void CreateRenderTargetViews()
     {
         // Create RTV descriptor heap
-        rtvDescriptorHeap.Initialize(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, m_FrameCount);
+        rtvDescriptorHeap.Initialize(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, m_FrameCount, false);
 
         for (uint32_t i = 0; i < m_FrameCount; ++i)
         {
@@ -297,7 +319,7 @@ public:
         device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &depthStencilDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clearValue, IID_PPV_ARGS(&depthStencilBuffer));
 
         // Create descriptor heap for depth stencil view (DSV)
-        dpvDescriptorHeap.Initialize(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+        dpvDescriptorHeap.Initialize(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
 
 
         // Create the depth stencil view (DSV)
@@ -312,11 +334,11 @@ public:
 
     void CreatePipeline()
     {
-        auto meshShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/Blending/Mesh.hlsl", L"MS", L"ms_6_5");
-        auto pixelShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/Blending/PixelShader.hlsl", L"PS", L"ps_6_0");
+        auto meshShaderBlob = shaderCompiler.Compile(L"../../Assets/Shaders/NumThreads/Mesh.hlsl", L"MS", L"ms_6_5");
+        auto pixelShaderBlob = shaderCompiler.Compile(L"../../Assets/Shaders/NumThreads/PixelShader.hlsl", L"PS", L"ps_6_0");
 
 
-        D3D12_ROOT_PARAMETER rootParams[2] = {};
+        D3D12_ROOT_PARAMETER rootParams[3] = {};
         rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         rootParams[0].Descriptor.ShaderRegister = 0;
         rootParams[0].Descriptor.RegisterSpace = 0;
@@ -327,10 +349,20 @@ public:
         rootParams[1].Descriptor.RegisterSpace = 0;
         rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
+        rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+		rootParams[2].Descriptor.ShaderRegister = 0; // b0
+        rootParams[2].Descriptor.RegisterSpace = 0;
+        rootParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
         D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
         rootSigDesc.NumParameters = _countof(rootParams);
         rootSigDesc.pParameters = rootParams;
+        rootSigDesc.NumStaticSamplers = 0;
+        rootSigDesc.pStaticSamplers = nullptr;
         rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+
+
 
         ID3DBlob* sigBlob = nullptr;
         ID3DBlob* errorBlob = nullptr;
@@ -363,7 +395,7 @@ public:
         // Depth stencil
         D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
         depthStencilDesc.DepthEnable = true;
-        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // This prevents opaque pixels from crowding out transparent pixels drawn later.
+        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
         depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
         depthStencilDesc.StencilEnable = false;
 
@@ -376,6 +408,7 @@ public:
         psoDesc.RasterizerState = rasterizerDesc;
         psoDesc.BlendState = blendDesc;
         psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
         psoDesc.NumRenderTargets = 1;
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.SampleMask = UINT_MAX;
@@ -401,17 +434,41 @@ public:
 
         Vertex vertices[] =
         {
-            { -0.20f, -0.55f, 0.0f, 1.0f,   1.0f, 0.5f, 0.2f, 0.1f },
-            { -0.55f,  0.55f, 0.0f, 1.0f,   1.0f, 0.5f, 0.2f, 1.0f },
-            {  0.15f,  0.55f, 0.0f, 1.0f,   1.0f, 0.5f, 0.2f, 0.5f },
+            // Front face
+            {{-0.5f,  0.5f, -0.5f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+            {{ 0.5f, -0.5f, -0.5f, 1.0f}, {1.0f, 0.0f, 1.0f, 1.0f}},
+            {{-0.5f, -0.5f, -0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+            {{ 0.5f,  0.5f, -0.5f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
 
-            {  0.00f, -0.40f, 0.0f, 1.0f,   0.2f, 1.0f, 0.3f, 0.1f },
-            { -0.35f,  0.70f, 0.0f, 1.0f,   0.2f, 1.0f, 0.3f, 1.0f },
-            {  0.35f,  0.70f, 0.0f, 1.0f,   0.2f, 1.0f, 0.3f, 0.5f },
+            // Right side face
+            {{ 0.5f, -0.5f, -0.5f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+            {{ 0.5f,  0.5f,  0.5f, 1.0f}, {1.0f, 0.0f, 1.0f, 1.0f}},
+            {{ 0.5f, -0.5f,  0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+            {{ 0.5f,  0.5f, -0.5f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
 
-            {  0.20f, -0.70f, 0.0f, 1.0f,   0.3f, 0.2f, 1.0f, 0.1f },
-            { -0.15f,  0.40f, 0.0f, 1.0f,   0.3f, 0.2f, 1.0f, 1.0f },
-            {  0.55f,  0.40f, 0.0f, 1.0f,   0.3f, 0.2f, 1.0f, 0.5f },
+            // Left side face
+            {{-0.5f,  0.5f,  0.5f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+            {{-0.5f, -0.5f, -0.5f, 1.0f}, {1.0f, 0.0f, 1.0f, 1.0f}},
+            {{-0.5f, -0.5f,  0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+            {{-0.5f,  0.5f, -0.5f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+
+            // Back face
+            {{ 0.5f,  0.5f,  0.5f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+            {{-0.5f, -0.5f,  0.5f, 1.0f}, {1.0f, 0.0f, 1.0f, 1.0f}},
+            {{ 0.5f, -0.5f,  0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+            {{-0.5f,  0.5f,  0.5f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+
+            // Top face
+            {{-0.5f,  0.5f, -0.5f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+            {{ 0.5f,  0.5f,  0.5f, 1.0f}, {1.0f, 0.0f, 1.0f, 1.0f}},
+            {{ 0.5f,  0.5f, -0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+            {{-0.5f,  0.5f,  0.5f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+
+            // Bottom face
+            {{ 0.5f, -0.5f,  0.5f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+            {{-0.5f, -0.5f, -0.5f, 1.0f}, {1.0f, 0.0f, 1.0f, 1.0f}},
+            {{ 0.5f, -0.5f, -0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+            {{-0.5f, -0.5f,  0.5f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
         };
 
         vertexBuffer.size = sizeof(vertices);
@@ -459,9 +516,29 @@ public:
         // Define indices for a triangle
         uint32_t indices[] =
         {
-            0, 1, 2,
-            3, 4, 5,
-            6, 7, 8
+            // front face
+            0, 1, 2, // first triangle
+            0, 3, 1, // second triangle
+
+            // left face
+            4, 5, 6, // first triangle
+            4, 7, 5, // second triangle
+
+            // right face
+            8, 9, 10, // first triangle
+            8, 11, 9, // second triangle
+
+            // back face
+            12, 13, 14, // first triangle
+            12, 15, 13, // second triangle
+
+            // top face
+            16, 17, 18, // first triangle
+            16, 19, 17, // second triangle
+
+            // bottom face
+            20, 21, 22, // first triangle
+            20, 23, 21, // second triangle
         };
 
         indexBuffer.size = sizeof(indices);
@@ -502,6 +579,134 @@ public:
         indexBuffer.m_indexBufferView.SizeInBytes = indexBuffer.size;
     }
 
+
+    void CreateConstantBuffer()
+    {
+        constBuffer.m_size = (sizeof(CameraBuffer) + 255) & ~255;
+
+        // Create constant buffer
+        constBuffer.m_size = 256; // Size of the constant buffer in bytes
+        D3D12_HEAP_PROPERTIES heapProps = {};
+        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+        heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        heapProps.CreationNodeMask = 1;
+        heapProps.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC bufferDesc = {};
+        bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        bufferDesc.Width = constBuffer.m_size;
+        bufferDesc.Height = 1;
+        bufferDesc.DepthOrArraySize = 1;
+        bufferDesc.MipLevels = 1;
+        bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+        bufferDesc.SampleDesc.Count = 1;
+        bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&constBuffer.m_buffer));
+
+        
+		// Create second constant buffer
+        device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&constBuffer2.m_buffer));
+
+
+        CreateCamera();
+    }
+
+    void CreateCamera()
+    {
+        DirectX::XMMATRIX view = DirectX::XMMatrixLookAtLH({ 0, 0, -3 }, { 0, 0, 0 }, { 0, 1, 0 });
+
+        // Set up projection matrix (perspective)
+        float fov = 45.0f * (3.14f / 180.0f);
+        float aspect = static_cast<float>(m_Width) / static_cast<float>(m_Height);
+        float nearZ = 0.1f;
+        float farZ = 1000.0f;
+        DirectX::XMMATRIX projection = DirectX::XMMatrixPerspectiveFovLH(fov, aspect, nearZ, farZ);
+
+        // Transpose matrices for HLSL (row-major in C++, column-major in HLSL)
+        cameraData.word = DirectX::XMMatrixIdentity();
+        cameraData.view = DirectX::XMMatrixTranspose(view);
+        cameraData.projection = DirectX::XMMatrixTranspose(projection);
+
+
+        // Transpose matrices for HLSL (row-major in C++, column-major in HLSL)
+        cameraData2.word = DirectX::XMMatrixIdentity();
+        cameraData2.view = DirectX::XMMatrixTranspose(view);
+        cameraData2.projection = DirectX::XMMatrixTranspose(projection);
+
+    }
+
+
+    // Cubo 1
+    float cube1RotationSpeed[3] = { 0.02f, -0.02f, 0.02f }; // pitch, yaw, roll
+    float cube1Position[3] = { 0.6f, 0.0f, 0.0f };
+
+    // Cubo 2
+    float cube2RotationSpeed[3] = { -0.02f, 0.02f, -0.02f };
+    float cube2Position[3] = { -0.6f, 0.0f, 0.0f };
+
+    float cube1Angles[3] = { 0.0f, 0.0f, 0.0f };
+    float cube2Angles[3] = { 0.0f, 0.0f, 0.0f };
+
+
+
+    void OnUpdate()
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            cube1Angles[i] += cube1RotationSpeed[i];
+            cube2Angles[i] += cube2RotationSpeed[i];
+        }
+
+
+		// Cube 1
+        XMMATRIX rot1 = XMMatrixRotationRollPitchYaw(cube1Angles[0], cube1Angles[1], cube1Angles[2]);
+        XMMATRIX trans1 = XMMatrixTranslation(cube1Position[0], cube1Position[1], cube1Position[2]);
+        cameraData.word = XMMatrixTranspose(rot1 * trans1);
+
+        void* mappedData = nullptr;
+        constBuffer.m_buffer->Map(0, nullptr, &mappedData);
+        memcpy(mappedData, &cameraData, sizeof(CameraBuffer));
+        constBuffer.m_buffer->Unmap(0, nullptr);
+
+
+
+
+
+        // Cube 2
+        XMMATRIX rot2 = XMMatrixRotationRollPitchYaw(cube2Angles[0], cube2Angles[1], cube2Angles[2]);
+        XMMATRIX trans2 = XMMatrixTranslation(cube2Position[0], cube2Position[1], cube2Position[2]);
+        cameraData2.word = XMMatrixTranspose(rot2 * trans2);
+
+        void* mappedData2 = nullptr;
+        constBuffer2.m_buffer->Map(0, nullptr, &mappedData2);
+        memcpy(mappedData2, &cameraData2, sizeof(CameraBuffer));
+        constBuffer2.m_buffer->Unmap(0, nullptr);
+    }
+
+    void OnRenderGui()
+    {
+        ImGui::Begin("NumThreads Control");
+        ImGui::Text("Mesh shader group size: 12 threads.");
+        ImGui::Separator();
+
+        if (ImGui::CollapsingHeader("Cube 1"))
+        {
+            ImGui::SliderFloat3("Pos 1", cube1Position, -5.0f, 5.0f);
+        }
+
+        if (ImGui::CollapsingHeader("Cube 2"))
+        {
+            ImGui::SliderFloat3("Pos 2", cube2Position, -5.0f, 5.0f);
+        }
+
+        ImGui::End();
+    }
+
+
+
+
+
     void OnRender()
     {
         // get the current back buffer index
@@ -512,12 +717,13 @@ public:
         commandList->Reset(commandAlloc, nullptr);
 
 
+
+
         // get a handle to the depth/stencil buffer
         D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dpvDescriptorHeap.GetCPUHandle(0);
 
         // get a handle to the render target view (RTV) for the current back buffer
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvDescriptorHeap.GetCPUHandle(backBufferIndex);
-
 
         // set the render target for the output merger stage (the output of the pipeline)
         // Set the render target view (RTV) for the current back buffer
@@ -526,21 +732,42 @@ public:
         commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 
-
         // Clear the render target
         float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
         commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-
-
-
         commandList->RSSetViewports(1, &viewport);
         commandList->RSSetScissorRects(1, &scissorRect);
 
-        commandList->SetPipelineState(pipelineState);
+
+
         commandList->SetGraphicsRootSignature(rootSignature);
+        commandList->SetPipelineState(pipelineState);
         commandList->SetGraphicsRootShaderResourceView(0, vertexBuffer.m_vertexBuffer->GetGPUVirtualAddress());
         commandList->SetGraphicsRootShaderResourceView(1, indexBuffer.m_indexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootConstantBufferView(2, constBuffer.m_buffer->GetGPUVirtualAddress());
         commandList->DispatchMesh(1, 1, 1);
+
+
+
+
+		//  second cube
+        commandList->SetPipelineState(pipelineState);
+        commandList->SetGraphicsRootConstantBufferView(2, constBuffer2.m_buffer->GetGPUVirtualAddress());
+        commandList->DispatchMesh(1, 1, 1);
+
+
+        // Start the Dear ImGui frame
+        ImGui_ImplDX12_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+        OnRenderGui();
+        // Render ImGui
+        ImGui::Render();
+
+
+        ID3D12DescriptorHeap* guiheaps[] = { guiDescriptorHeap.m_Heap };
+        commandList->SetDescriptorHeaps(_countof(guiheaps), guiheaps);
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 
         commandList->Close();
@@ -560,16 +787,15 @@ public:
 
 
 
+
     void OnResize(uint32_t newWidth, uint32_t newHeight)
     {
         m_Width = newWidth;
         m_Height = newHeight;
 
-        // Esperar GPU si estás usando varios buffers
         commandQueue->Signal(m_fence, ++m_fenceValue);
         WaitForPreviousFrame();
 
-        // Liberar buffers antiguos
         for (int i = 0; i < m_FrameCount; ++i)
         {
             if (renderTargets[i]) renderTargets[i]->Release();
@@ -579,21 +805,24 @@ public:
         // Resize swap chain
         swapChain->ResizeBuffers(m_FrameCount, m_Width, m_Height, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
 
-        // Volver a crear RTVs
         CreateRenderTargetViews();
 
-        // Volver a crear el Depth Buffer
         CreateDepthBuffer();
 
         // Viewport & Scissor Rect
         viewport = { 0.0f, 0.0f, static_cast<float>(m_Width), static_cast<float>(m_Height), 0.0f, 1.0f };
         scissorRect = { 0, 0, static_cast<long>(m_Width), static_cast<long>(m_Height) };
 
+        CreateCamera();
     }
 
 
     void Cleanup()
     {
+        ImGui_ImplDX12_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+
         if (indexBuffer.m_indexBuffer)
             indexBuffer.Destroy();
 
@@ -635,9 +864,11 @@ public:
 
 
 
+
+
 int main()
 {
-    WindowApp win = { 1280u, 720u, L"DX12 Blending" };
+    WindowApp win = { 1280u, 720u, L"DX12 NumThreads" };
     win.Initialize(GetModuleHandle(nullptr));
 
     Render render {};
@@ -646,19 +877,20 @@ int main()
 
     win.SetOnUpdate([&render]
         {
-
         });
+
+
 
 
     win.SetOnRender([&render]
         {
+            render.OnUpdate();
             render.OnRender();
         });
 
 
     win.SetOnResize([&render](UINT w, UINT h)
         {
-            std::wcout << L"[RESIZE] -> " << w << L"x" << h << std::endl;
             render.OnResize(w, h);
         });
 
@@ -667,3 +899,4 @@ int main()
 
     return 0;
 }
+

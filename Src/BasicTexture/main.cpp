@@ -1,4 +1,4 @@
-// ImGui.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// ImGui.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 
@@ -7,6 +7,7 @@
 #include <tchar.h>
 #include <iostream>
 #include <d3dcompiler.h>
+#include <d3dx12/d3dx12.h>
 #include "ShaderCompiler.h"
 #include "Desktop/Window.h"
 #include "Graphics/DescriptorHeap.h"
@@ -102,12 +103,12 @@ public:
     const uint32_t m_FrameCount { 3 };
 
     // Render device and resources
-    ID3D12Device* device = nullptr;
+    ID3D12Device2* device = nullptr;
     ID3D12CommandQueue* commandQueue = nullptr;
     IDXGISwapChain3* swapChain = nullptr;
     ID3D12Resource* renderTargets[3];
     ID3D12CommandAllocator* commandAlloc = nullptr;
-    ID3D12GraphicsCommandList* commandList = nullptr;
+    ID3D12GraphicsCommandList6* commandList = nullptr;
 
     ID3D12Resource* depthStencilBuffer; // This is the memory for our depth buffer. it will also be used for a stencil buffer in a later tutorial
 
@@ -148,7 +149,7 @@ public:
         IDXGIFactory4* factory = nullptr;
         CreateDXGIFactory1(IID_PPV_ARGS(&factory));
 
-        D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
+        D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device));
 
 
 
@@ -308,34 +309,39 @@ public:
 
     void CreatePipeline()
     {
-        auto vertexShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/ConstantBuffers/VertexShader.hlsl", L"VS", L"vs_6_0");
+        auto meshShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/ConstantBuffers/Mesh.hlsl", L"MS", L"ms_6_5");
         auto pixelShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/ConstantBuffers/PixelShader.hlsl", L"PS", L"ps_6_0");
 
 
-
         D3D12_DESCRIPTOR_RANGE cbvRange = {};
-        cbvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;  // Constant Buffer View
+        cbvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
         cbvRange.NumDescriptors = 1;
-        cbvRange.BaseShaderRegister = 0;  // b0
+        cbvRange.BaseShaderRegister = 0;
         cbvRange.RegisterSpace = 0;
         cbvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
+        D3D12_ROOT_PARAMETER rootParams[3] = {};
+        rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParams[0].Descriptor.ShaderRegister = 0;
+        rootParams[0].Descriptor.RegisterSpace = 0;
+        rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-        D3D12_ROOT_PARAMETER cbvRootParam = {};
-        cbvRootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        cbvRootParam.DescriptorTable.NumDescriptorRanges = 1;
-        cbvRootParam.DescriptorTable.pDescriptorRanges = &cbvRange;
-        cbvRootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParams[1].Descriptor.ShaderRegister = 1;
+        rootParams[1].Descriptor.RegisterSpace = 0;
+        rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-
-        D3D12_ROOT_PARAMETER rootParams[] = { cbvRootParam };
+        rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParams[2].DescriptorTable.NumDescriptorRanges = 1;
+        rootParams[2].DescriptorTable.pDescriptorRanges = &cbvRange;
+        rootParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
         D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
         rootSigDesc.NumParameters = _countof(rootParams);
         rootSigDesc.pParameters = rootParams;
         rootSigDesc.NumStaticSamplers = 0;
         rootSigDesc.pStaticSamplers = nullptr;
-        rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
 
 
@@ -345,16 +351,6 @@ public:
 
         D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &sigBlob, &errorBlob);
         device->CreateRootSignature(0, sigBlob->GetBufferPointer(), sigBlob->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
-
-
-        // Define the vertex input layout.
-        D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
-        {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-        };
-
-
         // Rasterizer state
         D3D12_RASTERIZER_DESC rasterizerDesc = {};
         rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
@@ -387,24 +383,25 @@ public:
 
 
 
-        // --- PIPELINE STATE [PSO]---
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        D3DX12_MESH_SHADER_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = rootSignature;
-        psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+        psoDesc.MS = { meshShaderBlob->GetBufferPointer(), meshShaderBlob->GetBufferSize() };
         psoDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
-        psoDesc.InputLayout.NumElements = _countof(inputElementDescs);
-        psoDesc.InputLayout.pInputElementDescs = inputElementDescs;
         psoDesc.RasterizerState = rasterizerDesc;
         psoDesc.BlendState = blendDesc;
         psoDesc.DepthStencilState = depthStencilDesc;
         psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 1;
-        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;  // Set the render target format
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleMask = UINT_MAX;
         psoDesc.SampleDesc.Count = 1;
 
-        device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState));
+        auto psoStream = CD3DX12_PIPELINE_MESH_STATE_STREAM(psoDesc);
+        D3D12_PIPELINE_STATE_STREAM_DESC streamDesc = {};
+        streamDesc.pPipelineStateSubobjectStream = &psoStream;
+        streamDesc.SizeInBytes = sizeof(psoStream);
+
+        device->CreatePipelineState(&streamDesc, IID_PPV_ARGS(&pipelineState));
     }
 
 
@@ -640,7 +637,7 @@ public:
     float cube2RotationSpeed[3] = { 0.0f, 0.0f, 0.0f };
     float cube2Position[3] = { -0.2f, 0.0f, 0.0f };
 
-    // �ngulos acumulados
+    // Ángulos acumulados
     float cube1Angles[3] = { 0.0f, 0.0f, 0.0f };
     float cube2Angles[3] = { 0.0f, 0.0f, 0.0f };
 
@@ -743,13 +740,11 @@ public:
 
         commandList->SetDescriptorHeaps(_countof(heaps), heaps);
         commandList->SetGraphicsRootSignature(rootSignature);
-        commandList->SetGraphicsRootDescriptorTable(0, cbvDescriptorHeap.GetGPUHandle(0));
-
         commandList->SetPipelineState(pipelineState);
-        commandList->IASetVertexBuffers(0, 1, &vertexBuffer.m_vertexBufferView);
-        commandList->IASetIndexBuffer(&indexBuffer.m_indexBufferView);
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->DrawIndexedInstanced(indexBuffer.m_indexCount, 1, 0, 0, 0);
+        commandList->SetGraphicsRootShaderResourceView(0, vertexBuffer.m_vertexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootShaderResourceView(1, indexBuffer.m_indexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootDescriptorTable(2, cbvDescriptorHeap.GetGPUHandle(0));
+        commandList->DispatchMesh(1, 1, 1);
 
 
 
@@ -757,13 +752,11 @@ public:
         //  second cube
         commandList->SetDescriptorHeaps(_countof(heaps), heaps);
         commandList->SetGraphicsRootSignature(rootSignature);
-        commandList->SetGraphicsRootDescriptorTable(0, cbvDescriptorHeap.GetGPUHandle(1));
-
         commandList->SetPipelineState(pipelineState);
-        commandList->IASetVertexBuffers(0, 1, &vertexBuffer.m_vertexBufferView);
-        commandList->IASetIndexBuffer(&indexBuffer.m_indexBufferView);
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->DrawIndexedInstanced(indexBuffer.m_indexCount, 1, 0, 0, 0);
+        commandList->SetGraphicsRootShaderResourceView(0, vertexBuffer.m_vertexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootShaderResourceView(1, indexBuffer.m_indexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootDescriptorTable(2, cbvDescriptorHeap.GetGPUHandle(1));
+        commandList->DispatchMesh(1, 1, 1);
 
 
 

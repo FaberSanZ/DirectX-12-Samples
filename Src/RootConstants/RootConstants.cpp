@@ -1,4 +1,4 @@
-// RootConstants.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// RootConstants.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 
@@ -8,6 +8,7 @@
 #include <iostream>
 #include <random> // std::random_device, std::mt19937, std::uniform_real_distribution
 #include <d3dcompiler.h>
+#include <d3dx12/d3dx12.h>
 #include "ShaderCompiler.h"
 #include "Desktop/Window.h"
 #include "Graphics/DescriptorHeap.h"
@@ -214,12 +215,12 @@ public:
     uint32_t m_FrameCount { 2 };
 
     // Render device and resources
-    ID3D12Device* device = nullptr;
+    ID3D12Device2* device = nullptr;
     ID3D12CommandQueue* commandQueue = nullptr;
     IDXGISwapChain3* swapChain = nullptr;
     ID3D12Resource* renderTargets[2];
     ID3D12CommandAllocator* commandAlloc = nullptr;
-    ID3D12GraphicsCommandList* commandList = nullptr;
+    ID3D12GraphicsCommandList6* commandList = nullptr;
 
     // This is the memory for our depth buffer. it will also be used for a stencil buffer in a later tutorial
     ID3D12Resource* depthStencilBuffer; 
@@ -259,8 +260,8 @@ public:
 
     // Cube positions and rotation speeds, 
     // these will be used to control the cubes in the scene
-    const uint32_t OBJECT_INSTANCES = 255;
-    DirectX::XMFLOAT3 rotationSpeeds[256] = {};
+    const uint32_t OBJECT_INSTANCES = 128;
+    DirectX::XMFLOAT3 rotationSpeeds[128] = {};
     float rotation = 0.0f;
     float dimension = 0;
     uint32_t drawCallCount = 0;
@@ -281,7 +282,7 @@ public:
         IDXGIFactory4* factory = nullptr;
         CreateDXGIFactory1(IID_PPV_ARGS(&factory));
 
-        D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
+        D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device));
 
 
 
@@ -439,33 +440,38 @@ public:
 
     void CreatePipeline()
     {
-        auto vertexShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/RootConstants/VertexShader.hlsl", L"VS", L"vs_6_0");
-        auto pixelShaderBlob = shaderCompiler.Compile(L"../../../../Assets/Shaders/RootConstants/PixelShader.hlsl", L"PS", L"ps_6_0");
+        auto meshShaderBlob = shaderCompiler.Compile(L"../../Assets/Shaders/RootConstants/Mesh.hlsl", L"MS", L"ms_6_5");
+        auto pixelShaderBlob = shaderCompiler.Compile(L"../../Assets/Shaders/RootConstants/PixelShader.hlsl", L"PS", L"ps_6_0");
 
 
+        D3D12_ROOT_PARAMETER rootParams[4] = {};
+        rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParams[0].Descriptor.ShaderRegister = 0;
+        rootParams[0].Descriptor.RegisterSpace = 0;
+        rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-        D3D12_ROOT_PARAMETER cbvRootParam = {};
-        cbvRootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        cbvRootParam.Descriptor.ShaderRegister = 0; // b0
-        cbvRootParam.Descriptor.RegisterSpace = 0;
-        cbvRootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParams[1].Descriptor.ShaderRegister = 1;
+        rootParams[1].Descriptor.RegisterSpace = 0;
+        rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-        D3D12_ROOT_PARAMETER rootParam = {};
-        rootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        rootParam.Constants.Num32BitValues = 8;
-        rootParam.Constants.ShaderRegister = 1;                               // Register b1
-        rootParam.Constants.RegisterSpace = 0;
-        rootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParams[2].Descriptor.ShaderRegister = 0; // b0
+        rootParams[2].Descriptor.RegisterSpace = 0;
+        rootParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-
-        D3D12_ROOT_PARAMETER rootParams[] = { cbvRootParam, rootParam };
+        rootParams[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        rootParams[3].Constants.Num32BitValues = 16;
+        rootParams[3].Constants.ShaderRegister = 1; // b1
+        rootParams[3].Constants.RegisterSpace = 0;
+        rootParams[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
         D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
         rootSigDesc.NumParameters = _countof(rootParams);
         rootSigDesc.pParameters = rootParams;
         rootSigDesc.NumStaticSamplers = 0;
         rootSigDesc.pStaticSamplers = nullptr;
-        rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
 
 
@@ -475,16 +481,6 @@ public:
 
         D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &sigBlob, &errorBlob);
         device->CreateRootSignature(0, sigBlob->GetBufferPointer(), sigBlob->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
-
-
-        // Define the vertex input layout.
-        D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
-        {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-        };
-
-
         // Rasterizer state
         D3D12_RASTERIZER_DESC rasterizerDesc = {};
         rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
@@ -517,24 +513,25 @@ public:
 
 
 
-        // --- PIPELINE STATE [PSO]---
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        D3DX12_MESH_SHADER_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = rootSignature;
-        psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+        psoDesc.MS = { meshShaderBlob->GetBufferPointer(), meshShaderBlob->GetBufferSize() };
         psoDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
-        psoDesc.InputLayout.NumElements = _countof(inputElementDescs);
-        psoDesc.InputLayout.pInputElementDescs = inputElementDescs;
         psoDesc.RasterizerState = rasterizerDesc;
         psoDesc.BlendState = blendDesc;
         psoDesc.DepthStencilState = depthStencilDesc;
         psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 1;
-        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;  // Set the render target format
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleMask = UINT_MAX;
         psoDesc.SampleDesc.Count = 1;
 
-        device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState));
+        auto psoStream = CD3DX12_PIPELINE_MESH_STATE_STREAM(psoDesc);
+        D3D12_PIPELINE_STATE_STREAM_DESC streamDesc = {};
+        streamDesc.pPipelineStateSubobjectStream = &psoStream;
+        streamDesc.SizeInBytes = sizeof(psoStream);
+
+        device->CreatePipelineState(&streamDesc, IID_PPV_ARGS(&pipelineState));
     }
 
     void CreateVertexBuffer()
@@ -808,7 +805,7 @@ public:
     }
 
 	// Generate cubes in a grid pattern
-    void GenerateCubes(ID3D12GraphicsCommandList* cmd)
+    void GenerateCubes(ID3D12GraphicsCommandList6* cmd)
     {
         rotation += 0.02f;
 
@@ -850,14 +847,14 @@ public:
     }
 
 	// Add a cube to the scene at a specific position and rotation
-    void AddCube(ID3D12GraphicsCommandList* cmd, XMFLOAT3 position, XMFLOAT3 rotation)
+    void AddCube(ID3D12GraphicsCommandList6* cmd, XMFLOAT3 position, XMFLOAT3 rotation)
     {
         XMMATRIX trans = XMMatrixTranslation(position.x, position.y, position.z);
         XMMATRIX rot = XMMatrixRotationRollPitchYaw(rotation.x, rotation.y, rotation.z);
         XMMATRIX world = XMMatrixTranspose(rot * trans);
 
-        cmd->SetGraphicsRoot32BitConstants(1, 16, &world, 0);
-        cmd->DrawIndexedInstanced(indexBuffer.m_indexCount, 1, 0, 0, 0);
+        cmd->SetGraphicsRoot32BitConstants(3, 16, &world, 0);
+        cmd->DispatchMesh(1, 1, 1);
         drawCallCount++;
     }
 
@@ -897,10 +894,9 @@ public:
         commandList->RSSetScissorRects(1, &scissorRect);
         commandList->SetGraphicsRootSignature(rootSignature);
         commandList->SetPipelineState(pipelineState);
-        commandList->IASetVertexBuffers(0, 1, &vertexBuffer.m_vertexBufferView);
-        commandList->IASetIndexBuffer(&indexBuffer.m_indexBufferView);
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->SetGraphicsRootConstantBufferView(0, constBuffer.m_buffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootShaderResourceView(0, vertexBuffer.m_vertexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootShaderResourceView(1, indexBuffer.m_indexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootConstantBufferView(2, constBuffer.m_buffer->GetGPUVirtualAddress());
         GenerateCubes(commandList);
 
 
