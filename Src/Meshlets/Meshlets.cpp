@@ -32,48 +32,7 @@ class Render
 {
 public:
 
-    class VertexBuffer
-    {
-    public:
-        VertexBuffer() = default;
-
-        ID3D12Resource* m_vertexBuffer = nullptr;
-        D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
-
-        uint32_t stride = { };
-        uint32_t size = { };
-
-        void Destroy()
-        {
-            if (m_vertexBuffer)
-            {
-                m_vertexBuffer->Release();
-                m_vertexBuffer = nullptr;
-            }
-        }
-    } vertexBuffer;
-
-    class IndexBuffer
-    {
-    public:
-        IndexBuffer() = default;
-        ID3D12Resource* m_indexBuffer = nullptr;
-        D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
-        uint32_t stride = { };
-        uint32_t size = { };
-        uint32_t m_indexCount{ };
-
-        void Destroy()
-        {
-            if (m_indexBuffer)
-            {
-                m_indexBuffer->Release();
-                m_indexBuffer = nullptr;
-            }
-        }
-
-    } indexBuffer;
-
+	ID3D12Resource* vertexBuffer = nullptr;
     ID3D12Resource* meshletBuffer = nullptr;
     ID3D12Resource* meshletVerticesBuffer = nullptr;
     ID3D12Resource* meshletTrianglesBuffer = nullptr;
@@ -213,8 +172,8 @@ public:
         CreateRenderTargetViews();
         CreateDepthBuffer();
         CreatePipeline();
-        CreateVertexBuffer();
-        CreateIndexBuffer();
+
+        CreateMeshletMesh();
         CreateConstantBuffer();
 
 
@@ -517,69 +476,27 @@ public:
         return { vertices, indices };
     }
 
-    Mesh sphereMesh = GenerateSphereMesh(0.5f, 20, 20);
 
-    void CreateVertexBuffer()
+
+    void CreateMeshletMesh()
     {
+        Mesh sphereMesh = GenerateSphereMesh(0.5f, 20, 20);
 
 
-        auto vertices = sphereMesh.vertices.data();
+		auto vertices = sphereMesh.vertices.data();
+        auto vertexCount = sphereMesh.vertices.size();
+        auto indices = sphereMesh.indices.data();
+        auto indexCount = sphereMesh.indices.size();
 
-        vertexBuffer.size = static_cast<uint32_t>(sphereMesh.vertices.size() * sizeof(Vertex));
-        vertexBuffer.stride = sizeof(Vertex);
+        auto maxVertices = 24;
+        auto maxTriangles = 12;
+        auto coneWeight = 0.0f;
 
-        // Create vertex buffer
-        D3D12_HEAP_PROPERTIES heapProps = {};
-        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
-        heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-        heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-        heapProps.CreationNodeMask = 1;
-        heapProps.VisibleNodeMask = 1;
-
-        D3D12_RESOURCE_DESC bufferDesc = {};
-        bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        bufferDesc.Width = vertexBuffer.size;
-        bufferDesc.Height = 1;
-        bufferDesc.DepthOrArraySize = 1;
-        bufferDesc.MipLevels = 1;
-        bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
-        bufferDesc.SampleDesc.Count = 1;
-        bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-
-        device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexBuffer.m_vertexBuffer));
-
-
-        // Copy vertex data to the vertex buffer
-        void* pData;
-        vertexBuffer.m_vertexBuffer->Map(0, nullptr, &pData);
-        memcpy(pData, sphereMesh.vertices.data(), vertexBuffer.size);
-        vertexBuffer.m_vertexBuffer->Unmap(0, nullptr);
-
-
-        // Initialize the vertex buffer view.
-        vertexBuffer.m_vertexBufferView.BufferLocation = vertexBuffer.m_vertexBuffer->GetGPUVirtualAddress();
-        vertexBuffer.m_vertexBufferView.StrideInBytes = vertexBuffer.stride;
-        vertexBuffer.m_vertexBufferView.SizeInBytes = vertexBuffer.size;
-
-    }
-
-    void CreateIndexBuffer()
-    {
-        const uint32_t* indices = sphereMesh.indices.data();
-        const size_t indexCount = sphereMesh.indices.size();
-        const size_t vertexCount = sphereMesh.vertices.size();
-
-        constexpr size_t kMaxVertices = 24;
-        constexpr size_t kMaxTriangles = 12;
-        constexpr float kConeWeight = 0.0f;
-
-        const size_t meshletCountMax = meshopt_buildMeshletsBound(indexCount, kMaxVertices, kMaxTriangles);
+        auto meshletCountMax = meshopt_buildMeshletsBound(indexCount, maxVertices, maxTriangles);
 
         meshlets.resize(meshletCountMax);
-        meshletVertices.resize(meshletCountMax * kMaxVertices);
-        meshletTriangleBytes.resize(meshletCountMax * kMaxTriangles * 3);
+        meshletVertices.resize(meshletCountMax * maxVertices);
+        meshletTriangleBytes.resize(meshletCountMax * maxTriangles * 3);
 
         meshletCount = static_cast<uint32_t>(meshopt_buildMeshlets(
                 meshlets.data(),
@@ -587,12 +504,12 @@ public:
                 meshletTriangleBytes.data(),
                 indices,
                 indexCount,
-                reinterpret_cast<const float*>(sphereMesh.vertices.data()),
+                reinterpret_cast<const float*>(vertices),
                 vertexCount,
                 sizeof(Vertex),
-                kMaxVertices,
-                kMaxTriangles,
-                kConeWeight));
+                maxVertices,
+                maxTriangles,
+                coneWeight));
 
         meshlets.resize(meshletCount);
 
@@ -603,17 +520,6 @@ public:
             meshletTriangleBytes.resize(last.triangle_offset + last.triangle_count * 3);
         }
 
-        // Optimize each meshlet locally. Important:
-        // meshopt_Meshlet::triangle_offset is already an offset into the byte array,
-        // so do NOT multiply it by 3 here.
-        for (uint32_t i = 0; i < meshletCount; ++i)
-        {
-            meshopt_Meshlet& meshlet = meshlets[i];
-            unsigned int* localVertices = meshletVertices.data() + meshlet.vertex_offset;
-            unsigned char* localTriangles = meshletTriangleBytes.data() + meshlet.triangle_offset;
-
-            meshopt_optimizeMeshlet(localVertices, localTriangles, meshlet.triangle_count, meshlet.vertex_count);
-        }
 
         // Convert meshoptimizer's byte triangle stream into a uint-packed stream for HLSL.
         // Each uint stores 3 local vertex indices: x | y << 8 | z << 16.
@@ -657,6 +563,7 @@ public:
         heapProps.CreationNodeMask = 1;
         heapProps.VisibleNodeMask = 1;
 
+        createBuffer(&vertexBuffer, vertices, vertexCount * sizeof(Vertex), heapProps);
         createBuffer(&meshletBuffer, gpuMeshlets.data(), gpuMeshlets.size() * sizeof(GpuMeshlet), heapProps);
         createBuffer(&meshletVerticesBuffer, meshletVertices.data(), meshletVertices.size() * sizeof(uint32_t), heapProps);
         createBuffer(&meshletTrianglesBuffer, meshletTriangles.data(), meshletTriangles.size() * sizeof(uint32_t), heapProps);
@@ -696,6 +603,7 @@ public:
         heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
         heapProps.CreationNodeMask = 1;
         heapProps.VisibleNodeMask = 1;
+
         D3D12_RESOURCE_DESC bufferDesc = {};
         bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
         bufferDesc.Width = constBuffer.m_size;
@@ -846,11 +754,9 @@ public:
         commandList->SetGraphicsRootShaderResourceView(0, meshletBuffer->GetGPUVirtualAddress());
         commandList->SetGraphicsRootShaderResourceView(1, meshletVerticesBuffer->GetGPUVirtualAddress());
         commandList->SetGraphicsRootShaderResourceView(2, meshletTrianglesBuffer->GetGPUVirtualAddress());
-        commandList->SetGraphicsRootShaderResourceView(3, vertexBuffer.m_vertexBuffer->GetGPUVirtualAddress());
+        commandList->SetGraphicsRootShaderResourceView(3, vertexBuffer->GetGPUVirtualAddress());
         commandList->SetGraphicsRootConstantBufferView(4, constBuffer.m_buffer->GetGPUVirtualAddress());
         commandList->DispatchMesh(meshletCount, 1, 1);
-
-
 
 
         //  second cube
@@ -932,11 +838,8 @@ public:
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
 
-        if (indexBuffer.m_indexBuffer)
-            indexBuffer.Destroy();
-
-        if (vertexBuffer.m_vertexBuffer)
-            vertexBuffer.Destroy();
+        if (vertexBuffer)
+            vertexBuffer->GetGPUVirtualAddress();
 
         if (meshletTrianglesBuffer)
             meshletTrianglesBuffer->Release();

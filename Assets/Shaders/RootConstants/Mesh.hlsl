@@ -109,11 +109,7 @@ void MS(
         {
             uint triBaseIndex = i * 3;
 
-            tris[i] = uint3(
-                gIndices[triBaseIndex + 0],
-                gIndices[triBaseIndex + 1],
-                gIndices[triBaseIndex + 2]
-            );
+            tris[i] = uint3(gIndices[triBaseIndex + 0], gIndices[triBaseIndex + 1], gIndices[triBaseIndex + 2]);
         }
     }
 }

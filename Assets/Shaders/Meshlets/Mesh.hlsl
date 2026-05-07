@@ -1,4 +1,4 @@
-cbuffer MatrrixBuffer
+cbuffer MatrixBuffer
 {
     float4x4 World;
     float4x4 View;
@@ -98,7 +98,8 @@ void MS(uint threadId : SV_GroupIndex, uint3 groupId : SV_GroupID, out vertices 
     if (threadId < meshlet.triangle_count)
     {
         uint packedTriangle = gMeshletTriangles[meshlet.triangle_offset + threadId];
-
         tris[threadId] = uint3(packedTriangle & 0xff, (packedTriangle >> 8) & 0xff, (packedTriangle >> 16) & 0xff);
+        
+        //tris[threadId] = gMeshletTriangles[meshlet.triangle_offset + threadId];
     }
 }
