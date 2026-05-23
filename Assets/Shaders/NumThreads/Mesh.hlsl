@@ -81,7 +81,6 @@ void MS(
 
     uint baseIndex = threadId * 3;
 
-    // Cada hilo procesa los 3 vertices de su triángulo
     for (uint i = 0; i < 3; ++i)
     {
         uint vertexIndex = gIndices[baseIndex + i];

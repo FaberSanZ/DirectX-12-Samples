@@ -35,6 +35,10 @@ void MS(uint3 groupThreadID : SV_GroupThreadID, out vertices MeshOutput verts[4]
     verts[id].Color = v.color;
     
     
+    //uint idxcount = 0;
+    //uint stride = 0;
+    
+    //gIndices.GetDimensions(idxcount, stride);
     
     for (uint i = 0; i < 2; ++i) // In this example, we are using the first 6 indices to form 2 triangles.
     {
